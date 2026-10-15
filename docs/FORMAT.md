@@ -21,34 +21,74 @@ Notation: `str` is a `u32` length followed by that many bytes. `vec<T>` is a
 
 ## Header
 
-Parsed in full by `crates/lib/src/header.rs`.
+Parsed in full by `crates/lib/src/header.rs`. The field column uses the
+Rust field names, and a dotted name in backticks is a field of a field.
+Strings stored in the save, such as the keys of a Lua table, are in double
+quotes.
 
 | field | type | notes |
 |---|---|---|
 | magic | `"tf**"` | |
-| version | u32 | 604 |
-| ? | u32 ×3 | |
-| date | u32 | date shown in the game, as a Julian day number (2415021 is 1 January 1900) |
-| money | i64 | copy of the journal balance, shown in the load dialog |
-| experience | u32 | copy of the company's experience points; grows with play, not a year |
-| info | lua table | usually empty |
-| mods | vec<{str ×5, u32}> | id, source, path, display name, extra, flags |
-| ? | u8 | 0 or 1; not a "has preview" flag, as saves with 0 still carry a full preview |
-| width, height | u32, u32 | 640×360 |
-| preview | str | raw RGB8, rows bottom-up (as in BMP or OpenGL) |
-| stats | i64 ×6 | index 3 is a copy of the money |
-| stats | i32 ×11, vec<(u32,u32)>, u32 ×2, i64 ×9, u32 ×2 | |
-| labels | vec<{str, u32}> | e.g. `"%d Point(s) for Company Value"` |
-| stats | u32, i64 ×2, u32 | |
-| config.mods | vec<str> | |
-| config.resources | vec<(str, str)> | `climate`, `economy`, `nameList` |
-| config.params | vec<(str, lua table)> | the empty key holds the base settings: `advancedOptions.*`, `townConfig.*`, `map.size`, … |
-| config.mission, kind | str, str | |
-| config flag, value | u8, u32 | |
-| config.id | str | |
+| `version` | u32 | 604 |
+| `start_year` | u32 | year the game was started |
+| `map_width`, `map_height` | u32, u32 | map size in metres, see [Map size](#map-size) |
+| `date` | u32 | date shown in the game, as a Julian day number (2415021 is 1 January 1900) |
+| `money` | i64 | copy of the journal balance, shown in the load dialog |
+| `experience` | u32 | copy of the company's experience points; grows with play, not a year |
+| `info_table` | lua table | key "company.level" (1 to 15) in most saves |
+| `mods` | vec<{str ×5, u32}> | per mod: `id`, `source`, `path`, `name`, `extra`, `flags`; `extra` is the mod's web page URL when it has one, `flags` is 0, 1 or 2 |
+| `achievements_earnable` | u8 | 1 if achievements can be earned, 0 if not; the game writes it at every save, from the mod list |
+| `thumbnail.width`, `thumbnail.height` | u32, u32 | 640×360 |
+| `thumbnail.rgb` | str | raw RGB8, rows bottom-up (as in BMP or OpenGL) |
+| `stats_i64` | i64 ×6 | index 3 is a copy of the money |
+| `stats_i32` | i32 ×11 | |
+| `stats_pairs` | vec<(u32,u32)> | |
+| `stats_u32` | u32 ×2 | |
+| `stats2_i64` | i64 ×9 | |
+| `stats2_u32` | u32 ×2 | |
+| `labels` | vec<{str, u32}> | e.g. "%d Point(s) for Company Value" |
+| `stats3_u32` | u32 | |
+| `stats3_i64` | i64 ×2 | |
+| `unknown_d` | u32 | meaning not known |
+| `config.mod_ids` | vec<str> | |
+| `config.resources` | vec<(str, str)> | keys "climate", "economy", "nameList" |
+| `config.params` | vec<(str, lua table)> | the empty key "" holds the base settings: "advancedOptions.*", "townConfig.*", "map.size", … |
+| `config.mission`, `config.kind` | str, str | |
+| `config.achievements_earnable` | u8 | same value as `achievements_earnable` |
+| `config.value` | u32 | meaning not known |
+| `config.id` | str | |
 
 The game configuration is stored only here, so editing it really changes
 the game's settings.
+
+### Map size
+
+The header's width and height give the size of the map in metres. The
+settings hold it as two options:
+
+* "map.size" (Map Size) and "map.format" (Map Format) are 1-based positions
+  in the New Game option lists: Map Size 1 is Tiny and 8 is Gigantomaniac,
+  Map Format 1 is 1 : 1 and 5 is 1 : 5. Map Format is unrelated to the save
+  format version.
+* Each Map Size is a set area and the Map Format only changes its shape, so
+  a 1 : 2 map of a size has about the same area as its 1 : 1 map, as a
+  longer and narrower rectangle.
+* A save can store a "map.size" or "map.format" that does not match its
+  width and height.
+
+| "map.size" | 1 : 1 map, m | km² |
+|---|---|---|
+| 1 Tiny | not seen | – |
+| 2 Small | 8192 × 8192 | 67.11 |
+| 3 Medium | 11264 × 11264 | 126.88 |
+| 4 Large | 14336 × 14336 | 205.52 |
+| 5 Very Large | 16384 × 16384 | 268.44 |
+| 6 Huge | 20480 × 20480 | 419.43 |
+| 7 Megalomaniac | 24576 × 24576 | 603.98 |
+| 8 Gigantomaniac | 28672 × 28672 | 822.08 |
+
+The Load Game dialog shows its "experimental" notice for a stored
+"map.size" of 1 or 6-8 and a "map.format" of 4 or 5.
 
 ## Lua values
 
@@ -69,13 +109,17 @@ order.
 ## Player journal (money)
 
 The engine keeps a journal per entity: a time-ordered list of bookings
-followed by the cached balance. The player's money **is** that balance.
+followed by a stored balance. The player's money is the sum of the amounts.
 
 ```
 u32 count
 count × { i64 time_ms, i64 amount, u8 type, u8 construction, u8 maintenance, u8 other, u8 carrier }
-i64 balance        // == sum(amount)
+i64 balance        // the header's money; sum(amount) in most saves
 ```
+
+The stored balance and the sum differ in some saves (67 of the 198 catalog
+saves that load). In one of them the header holds 0 and the sum is
+-18,153,221; the game shows -18,153,221 (**Observed**, one save).
 
 Category enums:
 
@@ -88,10 +132,42 @@ Category enums:
 * carrier: ROAD 0, RAIL 1, TRAM 2, OTHER 3, AIR 4, WATER 5
 
 The starting capital is booked as `(6, 6, 2, 0, 3)`, that is OTHER for every
-field. To find the journal, the editor scans for a stream that validates as
-a journal and whose balance equals the header's money. To change money, it
-appends an OTHER booking for the difference and updates both header copies.
-A save edited this way loads in the game with the new balance.
+field. To change money, the editor appends an OTHER booking so that the sum
+becomes the new value, stores the new value as the balance and updates both
+header copies. A save edited this way loads in the game with the new balance.
+
+### Where the journal is
+
+The player's journal sits at a fixed place in the entity data, near the start
+of the stream (between offsets 973,548 and 2,001,292 in the 198 catalog saves
+that load). It follows a table of the "edge_addons/*.edge" resources:
+
+```
+count × { str mod, str path, u32 index }   // base game: path ends "barrier_track_b.edge", index 5
+u32 ?                                      // 18, 21 or 24
+vec<u32> ids
+u32 ?
+u32 1
+u8 0
+journal
+```
+
+The `u32` before the ids is 24 in 415 of 766 saves checked, 18 in 337 and 21
+in 14 (all early games, experience 2,046 or less). It is 18 in 292 of the 315
+map-editor saves, 24 in 22 and 21 in 1. It does not follow the format version,
+the climate, the number of mods, the map size or the start year.
+
+Mods add their own entries after the base game's. The stored balance is not
+used to find the journal, so it is found when the header money is 0 or does
+not match. Map-editor saves have a journal at the same place. In 275 of the
+316 saves in the map folders the header money and the stored balance are 0
+while the amounts sum to a non-zero value. In one catalog save the journal
+starts 12 bytes after the usual place. The editor accepts that only if the
+stored balance equals the header's money.
+
+When the table is not found, the editor falls back to searching the stream
+for a journal whose stored balance equals the header's money and the sum of
+its amounts, and uses it only if exactly one matches.
 
 ## Game script states
 

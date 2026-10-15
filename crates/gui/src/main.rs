@@ -203,15 +203,15 @@ impl SaveEditor {
         cx: &mut Context<Self>,
     ) {
         let mut notes = Vec::new();
-        if save.header.version != tf3save::KNOWN_VERSION {
+        if save.header.version > tf3save::KNOWN_VERSION {
             notes.push(format!(
-                "save format version {} differs from the tested version {}",
+                "save format version {} is newer than the newest tested ({})",
                 save.header.version,
                 tf3save::KNOWN_VERSION
             ));
         }
-        if save.journal.is_none() {
-            notes.push("money section not found, money is read-only".into());
+        if let Some(why) = save.journal_problem() {
+            notes.push(format!("money section not found ({why}), money is read-only"));
         }
         if save.scripts.is_none() {
             notes.push("script state section not found".into());
@@ -383,7 +383,10 @@ impl SaveEditor {
         let cleaned: String = input.chars().filter(|c| !matches!(c, '_' | ',' | ' ' | '$')).collect();
         let Some(save) = self.save.as_mut() else { return };
         match cleaned.parse::<i64>() {
-            Ok(v) if v == save.money() => {}
+            // Nothing to do only if the header copy agrees too: in some saves
+            // the stored balance (and so the header) differs from the sum, and
+            // applying the same value brings them back in line.
+            Ok(v) if v == save.money() && v == save.header.money => {}
             Ok(v) => match save.set_money(v) {
                 Ok(()) => {
                     self.dirty = true;
@@ -471,6 +474,9 @@ impl SaveEditor {
                 let (y, m, d) = h.calendar_date();
                 format!("{y}-{m:02}-{d:02}")
             }),
+            ("Started", h.start_year.to_string()),
+            ("Map", format!("{} × {} m", group(h.map_width.into()), group(h.map_height.into()))),
+            ("Achievements", if h.achievements_earnable == 0 { "cannot be earned" } else { "can be earned" }.into()),
             ("Experience", h.experience.to_string()),
             ("Money", group(save.money())),
             ("Format version", h.version.to_string()),
@@ -485,7 +491,7 @@ impl SaveEditor {
             "Money section",
             match &save.journal {
                 Some(j) => format!("{} bookings", j.entries.len()),
-                None => format!("not found ({} candidates)", save.journal_matches),
+                None => format!("not found ({})", save.journal_problem().unwrap_or_default()),
             },
         ));
         facts.push((

@@ -17,10 +17,14 @@ A save game editor for **Transport Fever 3**, for Linux, Windows and macOS.
 | **Money** | Set the balance. The difference is booked as an "Other" entry in the finance journal. |
 | **Game settings** | The options chosen when the game was created: `advancedOptions.*` (costs, income, inflation, maintenance), town sensitivity, industry density, … |
 | **Script state** | Every value in the game's Lua script states: loans, company progression, towns (level, experience), subsidies, mission and achievement progress, … |
-| Read-only | Title, date, mods, preview image, journal history |
+| Read-only | Title, date, start year, map size, whether achievements can be earned, mods, preview image, journal history (dated from the save's calendar) |
 
 Values keep their type: numbers stay numbers, booleans stay booleans.
 Adding or removing table entries isn't supported.
+
+Saves of format version 599 and newer are supported; 604 is the newest
+tested. Older saves (568 and 585 were seen) are rejected with a clear error.
+`tf3se-cli info` and the GUI overview show a save's version.
 
 ## GUI
 
@@ -127,14 +131,15 @@ TF3_TEST_SAVE=~/game.sav cargo test -p tf3save
 
 ## How it works
 
-See [docs/FORMAT.md](docs/FORMAT.md) for the save format. In
-short: the save is a zstd-compressed sequential stream. The header is parsed
-in full. The money journal and the script states are found by validated
-search, re-serialised after editing, and spliced back between the untouched
-bytes. Loading a save and writing it back unchanged reproduces the game's
-uncompressed data byte for byte, which shows every parsed field is written
-back exactly. The `.sav` file itself can still differ in size, because the
-editor's zstd compression settings aren't identical to the game's.
+See [docs/FORMAT.md](docs/FORMAT.md) for the save format. In short: the save
+is a zstd-compressed sequential stream. The header is parsed in full. The
+money journal is found by its place in the entity data and the script states
+by validated search. Both are re-serialised after editing and spliced back
+between the untouched bytes. Loading a save and writing it back unchanged
+reproduces the game's uncompressed data byte for byte, which shows every
+parsed field is written back exactly. The `.sav` file itself can still
+differ in size, because the editor's zstd compression settings aren't
+identical to the game's.
 
 ## License
 
